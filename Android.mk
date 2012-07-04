@@ -15,7 +15,5 @@ LOCAL_SRC_FILES:=    \
     aib.c
 LOCAL_MODULE := aib
 LOCAL_MODULE_TAGS := optional
-LOCAL_MODULE_CLASS := EXECUTABLES
-LOCAL_IS_HOST_MODULE := true
 LOCAL_CFLAGS += -fno-strict-aliasing -DAPPNAME=\"aib\"
 include $(BUILD_HOST_EXECUTABLE)
