@@ -125,7 +125,9 @@ static int input_subsystem_init(void)
     ioctlx(uinput_fd, UI_SET_RELBIT, REL_X);
     ioctlx(uinput_fd, UI_SET_RELBIT, REL_Y);
     
-    ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_MOUSE);
+    ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_LEFT);
+    ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_RIGHT);
+    ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_MIDDLE);
 
     memcpy(uidev.name, "aibd-device", UINPUT_MAX_NAME_SIZE);
     uidev.id.bustype = BUS_USB;
