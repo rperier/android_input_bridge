@@ -29,7 +29,7 @@
 
 static void usage(char *progname)
 {
-    fprintf(stderr, "Usage: %s <port> <inputdevice>\n", progname);
+    fprintf(stderr, "Usage: %s <hostname> <port> <inputdevice>\n", progname);
     exit(1);
 }
 
@@ -51,14 +51,14 @@ static int input_device_init(const char *device)
     return indev_fd;
 }
 
-static int _connect(uint16_t port)
+static int _connect(const char *hostname, uint16_t port)
 {
     struct sockaddr_in aidd_addr;
     int sock_fd;
 
     sock_fd = socketx(AF_INET, SOCK_STREAM, 0);
     aidd_addr.sin_family = AF_INET;
-    inet_aton("127.0.0.1", &(aidd_addr.sin_addr));
+    inet_aton(hostname, &(aidd_addr.sin_addr));
     aidd_addr.sin_port = htons(port);
 
     if (connect(sock_fd, (struct sockaddr *)&aidd_addr, sizeof(struct sockaddr_in)) == -1) {
@@ -98,16 +98,16 @@ int main (int argc, char *argv[])
     char *endptr = NULL;
     int aidd_sock, inputdev;
 
-    if (argc < 3)
+    if (argc < 4)
         usage(argv[0]);
 
-    port = strtoul(argv[1], &endptr, 10);
+    port = strtoul(argv[2], &endptr, 10);
 
     if (*endptr != '\0')
         usage(argv[0]);
 
-    inputdev = input_device_init(argv[2]);
-    aidd_sock = _connect(port);
+    inputdev = input_device_init(argv[3]);
+    aidd_sock = _connect(argv[1], port);
     wait_evdev_input(aidd_sock, inputdev);
   
     return 0;
