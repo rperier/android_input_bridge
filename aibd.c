@@ -113,7 +113,7 @@ static int input_subsystem_init(void)
     int uinput_fd;
   
     if (getuid() != 0) {
-        fprintf(stderr, "aidd: root privileges are required to access to input subsystem\n");
+        fprintf(stderr, "aibd: root privileges are required to access to input subsystem\n");
         exit(1);
     }
 
@@ -127,7 +127,7 @@ static int input_subsystem_init(void)
     
     ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_MOUSE);
 
-    memcpy(uidev.name, "aidd-device", UINPUT_MAX_NAME_SIZE);
+    memcpy(uidev.name, "aibd-device", UINPUT_MAX_NAME_SIZE);
     uidev.id.bustype = BUS_USB;
     uidev.id.version = 1;
    
@@ -160,7 +160,7 @@ static void mainloop(int sock, int uinput)
         } while (ret < 0 && errno == EINTR);
 
         if (ret < 0) {
-            perror("aidd");
+            perror("aibd");
             exit(1);
 	}
 
@@ -196,7 +196,7 @@ static int socket_init(uint16_t port)
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
 
     if (sock_fd == -1) {
-        perror("aidd");
+        perror("aibd");
         exit(1);
     }
     memset(&addr, 0, sizeof(addr));
@@ -205,12 +205,12 @@ static int socket_init(uint16_t port)
     addr.sin_port = htons(port);
 
     if (bind(sock_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-        perror("aidd");
+        perror("aibd");
         exit(1);
     }
 
     if (listen(sock_fd, LISTENING_QUEUE_SIZE) == -1) {
-        perror("aidd");
+        perror("aibd");
         exit(1);
     }
     return sock_fd;
