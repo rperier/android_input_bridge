@@ -18,6 +18,11 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#include <stdint.h>
+#include <linux/input.h>
+
+#define EVENTS_QUEUE_SIZE 8
+
 #ifdef DEBUG
 #define D(...) \
     fprintf(stderr, __VA_ARGS__);
@@ -36,5 +41,10 @@
 
 int socketx(int domain, int type, int protocol);
 int openx(const char *pathname, int flags);
+
+static inline uint8_t is_ev_syn(struct input_event *ev)
+{
+    return ev->type == EV_SYN && ev->code == SYN_REPORT && ev->value == 0;
+}
 
 #endif /* COMMON_H */

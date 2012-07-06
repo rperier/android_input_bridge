@@ -17,6 +17,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -26,6 +27,10 @@
 #include <unistd.h>
 #include <linux/input.h>
 #include "common.h"
+
+#define BUFFERING_EVENTS_QUEUE_SIZE EVENTS_QUEUE_SIZE
+
+static uint32_t buffer[BUFFERING_EVENTS_QUEUE_SIZE * 2];
 
 static void usage(char *progname)
 {
@@ -70,25 +75,40 @@ static int _connect(const char *hostname, uint16_t port)
 
 static void send_event(int sock, struct input_event *ev)
 {
-    ev->type = htons(ev->type);
-    ev->code = htons(ev->code);
-    ev->value = htonl(ev->value);
+    int i = 0, j = 1;
 
-    send(sock, &ev->type, sizeof(uint16_t), 0);
-    send(sock, &ev->code, sizeof(uint16_t), 0);
-    send(sock, &ev->value, sizeof(int32_t), 0);
+    bzero(buffer, sizeof(buffer));
+    for (i = 0; i < BUFFERING_EVENTS_QUEUE_SIZE; i++) {
+        buffer[j] = ev[i].type;
+        buffer[j] = htonl((buffer[j] << 16) | ev[i].code);
+        buffer[j+1] = htonl(ev[i].value);
+
+        j += 2;
+        if (is_ev_syn(ev + i))
+            break;
+    }
+    buffer[0] = htonl(j - 1);
+    send(sock, buffer, sizeof(uint32_t) * j, 0);
 }
 
 static void wait_evdev_input(int aibd_sock, int inputdev)
 {
-    struct input_event ev;
+    struct input_event *ev;
+    int i = 0;
 
-    while (read(inputdev, &ev, sizeof(ev))) {
-        D("[%lu.%04lu] type %u, code %u, value %d\n", ev.time.tv_sec, ev.time.tv_usec, ev.type, ev.code, ev.value);
+    ev = malloc(sizeof(struct input_event) * BUFFERING_EVENTS_QUEUE_SIZE);
+    while (read(inputdev, ev + i, sizeof(struct input_event))) {
+        D("[%lu.%04lu] type %u, code %u, value %d\n", ev[i].time.tv_sec, ev[i].time.tv_usec, ev[i].type, ev[i].code, ev[i].value);
 
-        if (ev.type == EV_MSC)
+        if (ev[i].type == EV_MSC)
             continue;
-	send_event(aibd_sock, &ev);
+        if (is_ev_syn(ev + i)) {
+            send_event(aibd_sock, ev);
+	    bzero(ev, sizeof(struct input_event) * BUFFERING_EVENTS_QUEUE_SIZE);
+	    i = 0;
+	    continue;
+	}
+        i = (i + 1) % BUFFERING_EVENTS_QUEUE_SIZE; 
     }
 }
 
@@ -109,6 +129,6 @@ int main (int argc, char *argv[])
     inputdev = input_device_init(argv[3]);
     aidd_sock = _connect(argv[1], port);
     wait_evdev_input(aidd_sock, inputdev);
-  
+
     return 0;
 }

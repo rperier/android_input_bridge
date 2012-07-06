@@ -34,21 +34,16 @@
 
 #define NO_EXTRA_ARGUMENT -1
 #define LISTENING_QUEUE_SIZE 4
-#define EVENTS_QUEUE_SIZE 4
 
 static int remote_socks[LISTENING_QUEUE_SIZE];
 static struct uinput_user_dev uidev;
 static struct input_event events[EVENTS_QUEUE_SIZE];
+static uint32_t buffer[EVENTS_QUEUE_SIZE * 2];
 
 static void usage(char *progname)
 {
     fprintf(stderr, "Usage: %s <port>\n", progname);
     exit(1);
-}
-
-static inline uint8_t is_ev_syn(struct input_event *ev)
-{
-    return ev->type == EV_SYN && ev->code == SYN_REPORT && ev->value == 0;
 }
 
 static int forward_events(int uinput, struct input_event *ev)
@@ -57,15 +52,18 @@ static int forward_events(int uinput, struct input_event *ev)
     ssize_t ret;
 
     for(i = 0; i < EVENTS_QUEUE_SIZE; i++) {
-      gettimeofday(&ev[i].time, NULL);
-      ret = write(uinput, ev + i, sizeof(struct input_event));
-      
-      if (ret != sizeof(struct input_event)) {
-	fprintf(stderr, "Unable to forward event %u to uinput (ret = %lu)\n", i, ret);
-      }
 
-      if (is_ev_syn(ev + i))
-	return 0;
+        D("Forwarding event type = %u, code = %u, value = %d to input subsystem\n", ev[i].type, ev[i].code, ev[i].value);
+
+        gettimeofday(&ev[i].time, NULL);
+        ret = write(uinput, ev + i, sizeof(struct input_event));
+
+        if (ret != sizeof(struct input_event)) {
+            fprintf(stderr, "Unable to forward event %u to uinput (ret = %lu)\n", i, ret);
+        }
+
+        if (is_ev_syn(ev + i))
+            return 0;
     }
     return 0;
 }
@@ -83,27 +81,36 @@ static void connection_closed_by_peer(int sock)
 
 static int receive_input_events(int sock, struct input_event *ev)
 {
-    int i;
+    int i = 0, j = 1;
+    uint32_t size;
     ssize_t ret;
 
-    memset(ev, 0, sizeof(struct input_event) * EVENTS_QUEUE_SIZE);
+    bzero(ev, sizeof(struct input_event) * EVENTS_QUEUE_SIZE);
+    bzero(buffer, sizeof(uint32_t) * EVENTS_QUEUE_SIZE * 2);
 
-    for (i = 0; i < EVENTS_QUEUE_SIZE; i++) {
-        ret = recv(sock, &ev[i].type, sizeof(uint16_t), MSG_WAITALL);
+    ret = recv(sock, &size, sizeof(uint32_t), MSG_PEEK);
+    if (ret == 0) {
+        connection_closed_by_peer(sock);
+        return -1;
+    }
 
-        if (ret == 0) {
-            connection_closed_by_peer(sock);
-            return -1;
-        }
-        recv(sock, &ev[i].code, sizeof(uint16_t), MSG_WAITALL);
-        recv(sock, &ev[i].value, sizeof(uint32_t), MSG_WAITALL);
+    size = ntohl(size);
 
-        ev[i].type = ntohs(ev[i].type);
-        ev[i].code = ntohs(ev[i].code);
-        ev[i].value = ntohl(ev[i].value);
+    ret = recv(sock, buffer, sizeof(uint32_t) * (size + 1), MSG_WAITALL);
+    if (ret == 0) {
+        connection_closed_by_peer(sock);
+        return -1;
+    }
 
-        if (is_ev_syn(ev + i))
+    for(i = 0; i < EVENTS_QUEUE_SIZE; i++) {
+        buffer[j] = ntohl(buffer[j]);
+        ev[i].type = (buffer[j] >> 16);
+        ev[i].code = buffer[j] & 0xffff;
+        ev[i].value = ntohl(buffer[j+1]);
+
+        if (is_ev_syn(ev+i))
             break;
+        j += 2;
     }
     return 0;
 }
@@ -182,7 +189,6 @@ static void mainloop(int sock, int uinput)
                     ret = receive_input_events(remote_socks[i], events);
                     if (ret == -1)
                         continue;
-		    D("Forwarding events to input subsystem...\n");
                     forward_events(uinput, events);
                 }
             }
