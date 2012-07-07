@@ -131,7 +131,8 @@ static int input_subsystem_init(void)
 
     ioctlx(uinput_fd, UI_SET_RELBIT, REL_X);
     ioctlx(uinput_fd, UI_SET_RELBIT, REL_Y);
-    
+    ioctlx(uinput_fd, UI_SET_RELBIT, REL_WHEEL);
+
     ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_LEFT);
     ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_RIGHT);
     ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_MIDDLE);
