@@ -116,7 +116,7 @@ static int receive_input_events(int sock, struct input_event *ev)
 
 static int input_subsystem_init(void)
 {
-    int uinput_fd;
+    int uinput_fd, i;
     struct uinput_user_dev uidev;
     ssize_t ret;
 
@@ -138,6 +138,10 @@ static int input_subsystem_init(void)
     ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_LEFT);
     ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_RIGHT);
     ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_MIDDLE);
+
+    /* Register all keyboards keys, see linux/input.h */
+    for(i = 1; i <= 248; i++)
+        ioctlx(uinput_fd, UI_SET_KEYBIT, i);
 
     memcpy(uidev.name, "aibd-device", UINPUT_MAX_NAME_SIZE);
     uidev.id.bustype = BUS_USB;
@@ -245,7 +249,6 @@ int main (int argc, char *argv[])
 
     if (*endptr != '\0')
         usage(argv[0]);
-
     uinput = input_subsystem_init();
     sock = socket_init(port);
     mainloop(sock, uinput);
