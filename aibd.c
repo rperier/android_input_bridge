@@ -36,7 +36,6 @@
 #define LISTENING_QUEUE_SIZE 4
 
 static int remote_socks[LISTENING_QUEUE_SIZE];
-static struct uinput_user_dev uidev;
 static struct input_event events[EVENTS_QUEUE_SIZE];
 static uint32_t buffer[EVENTS_QUEUE_SIZE * 2];
 
@@ -118,7 +117,10 @@ static int receive_input_events(int sock, struct input_event *ev)
 static int input_subsystem_init(void)
 {
     int uinput_fd;
-  
+    struct uinput_user_dev uidev;
+    ssize_t ret;
+
+    bzero(&uidev, sizeof(uidev));
     if (getuid() != 0) {
         fprintf(stderr, "aibd: root privileges are required to access to input subsystem\n");
         exit(1);
@@ -140,8 +142,13 @@ static int input_subsystem_init(void)
     memcpy(uidev.name, "aibd-device", UINPUT_MAX_NAME_SIZE);
     uidev.id.bustype = BUS_USB;
     uidev.id.version = 1;
-   
-    write(uinput_fd, &uidev, sizeof(uidev));
+
+    ret = write(uinput_fd, &uidev, sizeof(uidev));
+    if (ret != sizeof(uidev)) {
+        fprintf(stderr, "aibd: Unable to initialize virtual input device for /dev/uinput\n");
+        exit(1);
+    }
+
     ioctlx(uinput_fd, UI_DEV_CREATE, NO_EXTRA_ARGUMENT);
 
     return uinput_fd;
