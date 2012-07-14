@@ -21,20 +21,23 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <linux/input.h>
+#include <errno.h>
 #include "common.h"
 
 #define BUFFERING_EVENTS_QUEUE_SIZE EVENTS_QUEUE_SIZE
 
 static uint32_t buffer[BUFFERING_EVENTS_QUEUE_SIZE * 2];
+static struct input_event ev[BUFFERING_EVENTS_QUEUE_SIZE];
 
 static void usage(char *progname)
 {
-    fprintf(stderr, "Usage: %s <hostname> <port> <inputdevice>\n", progname);
+    fprintf(stderr, "Usage: %s <hostname> <port> <device1> [device2] ... [deviceN]\n", progname);
     exit(1);
 }
 
@@ -93,11 +96,10 @@ static void send_event(int sock, struct input_event *ev)
 
 static void wait_evdev_input(int aibd_sock, int inputdev)
 {
-    struct input_event *ev;
     int i = 0;
 
-    ev = malloc(sizeof(struct input_event) * BUFFERING_EVENTS_QUEUE_SIZE);
-    while (read(inputdev, ev + i, sizeof(struct input_event))) {
+    while (1) {
+        read(inputdev, ev + i, sizeof(struct input_event));
         D("[%lu.%04lu] type %u, code %u, value %d\n", ev[i].time.tv_sec, ev[i].time.tv_usec, ev[i].type, ev[i].code, ev[i].value);
 
         if (ev[i].type == EV_MSC)
@@ -105,10 +107,40 @@ static void wait_evdev_input(int aibd_sock, int inputdev)
         if (is_ev_syn(ev + i)) {
             send_event(aibd_sock, ev);
 	    bzero(ev, sizeof(struct input_event) * BUFFERING_EVENTS_QUEUE_SIZE);
-	    i = 0;
-	    continue;
+	    break;
 	}
         i = (i + 1) % BUFFERING_EVENTS_QUEUE_SIZE; 
+    }
+}
+
+static void mainloop(int aibd_sock, char **devices, int len)
+{
+    int i = 0, maxfd = 0, ret = 0, *inputdevs = NULL;
+    fd_set readfds;
+
+    inputdevs = mallocx(len * sizeof(int));
+    for (i = 0; i < len; i++) {
+        inputdevs[i] = input_device_init(devices[i]);
+        D("Registering %s for events monitoring with fd %u\n", devices[i], inputdevs[i]);
+        if (inputdevs[i] > maxfd)
+            maxfd = inputdevs[i];
+    }
+
+    while (1) {
+        FD_ZERO(&readfds);
+
+        for (i = 0; i < len; i++)
+            FD_SET(inputdevs[i], &readfds);
+        do {
+            ret = select(maxfd + 1, &readfds, NULL, NULL, NULL);
+        } while (ret < 0 && errno == EINTR);
+
+        for (i = 0; i < len; i++) {
+            if (FD_ISSET(inputdevs[i], &readfds))  {
+                D("Receiving data from fd %u\n", inputdevs[i]);
+                wait_evdev_input(aibd_sock, inputdevs[i]);
+            }
+        }
     }
 }
 
@@ -116,7 +148,7 @@ int main (int argc, char *argv[])
 {
     uint16_t port;
     char *endptr = NULL;
-    int aidd_sock, inputdev;
+    int aibd_sock;
 
     if (argc < 4)
         usage(argv[0]);
@@ -126,9 +158,8 @@ int main (int argc, char *argv[])
     if (*endptr != '\0')
         usage(argv[0]);
 
-    inputdev = input_device_init(argv[3]);
-    aidd_sock = _connect(argv[1], port);
-    wait_evdev_input(aidd_sock, inputdev);
+    aibd_sock = _connect(argv[1], port);
+    mainloop(aibd_sock, argv + 3, argc - 3);
 
     return 0;
 }

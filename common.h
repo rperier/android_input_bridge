@@ -41,6 +41,7 @@
 
 int socketx(int domain, int type, int protocol);
 int openx(const char *pathname, int flags);
+void *mallocx(size_t size);
 
 static inline uint8_t is_ev_syn(struct input_event *ev)
 {

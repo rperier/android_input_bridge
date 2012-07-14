@@ -56,3 +56,19 @@ int openx(const char *pathname, int flags)
     D("openx--\n");
     return fd;
 }
+
+void *mallocx(size_t size)
+{
+    void *buffer;
+
+    D("mallox++\n");
+
+    buffer = malloc(size);
+    if (buffer == NULL) {
+        D("errno %d\n", errno);
+        perror(APPNAME);
+        exit(1);
+    }
+    D("mallocx--\n");
+    return buffer;
+}
