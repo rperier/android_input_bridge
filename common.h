@@ -21,7 +21,7 @@
 #include <stdint.h>
 #include <linux/input.h>
 
-#define EVENTS_QUEUE_SIZE 8
+#define EVENTS_QUEUE_SIZE 16
 
 #ifdef DEBUG
 #define D(...) \
