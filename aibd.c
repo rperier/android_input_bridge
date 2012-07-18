@@ -18,7 +18,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
+#include <strings.h>
 #include <stdarg.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -35,9 +37,35 @@
 #define NO_EXTRA_ARGUMENT -1
 #define LISTENING_QUEUE_SIZE 4
 
-static int remote_socks[LISTENING_QUEUE_SIZE];
-static struct input_event events[EVENTS_QUEUE_SIZE];
-static uint32_t buffer[EVENTS_QUEUE_SIZE * 2];
+static uint16_t evbits[] = {
+    EV_KEY,
+    EV_REL,
+    EV_ABS
+};
+static uint16_t relbits[] = {
+    REL_X,
+    REL_Y,
+    REL_WHEEL
+};
+static uint16_t keybits[] = {
+    BTN_LEFT,
+    BTN_RIGHT,
+    BTN_MIDDLE,
+    BTN_TOOL_FINGER,
+    BTN_TOUCH,
+    BTN_STYLUS,
+    BTN_TOOL_DOUBLETAP
+};
+static uint16_t absbits[] = {
+    ABS_MT_TRACKING_ID,
+    ABS_PRESSURE,
+    ABS_TOOL_WIDTH,
+    ABS_MT_POSITION_X,
+    ABS_MT_POSITION_Y,
+    ABS_X,
+    ABS_Y,
+    ABS_MT_SLOT
+};
 
 static void usage(char *progname)
 {
@@ -52,12 +80,12 @@ static int forward_events(int uinput, struct input_event *ev)
 
     for(i = 0; i < EVENTS_QUEUE_SIZE; i++) {
 
-        D("Forwarding event type = %u, code = %u, value = %d to input subsystem\n", ev[i].type, ev[i].code, ev[i].value);
+        D("Forwarding event type = 0x%x, code = 0x%x, value = %d to input subsystem\n", ev[i].type, ev[i].code, ev[i].value);
 
         gettimeofday(&ev[i].time, NULL);
         ret = write(uinput, ev + i, sizeof(struct input_event));
 
-        if (ret != sizeof(struct input_event)) {
+        if (unlikely(ret != sizeof(struct input_event))) {
             fprintf(stderr, "Unable to forward event %u to uinput (ret = %lu)\n", i, ret);
         }
 
@@ -67,41 +95,45 @@ static int forward_events(int uinput, struct input_event *ev)
     return 0;
 }
 
-static void connection_closed_by_peer(int sock)
+static void registering_client(int sock, int *remote_socks)
 {
     int i;
 
-    for (i = 0; i < LISTENING_QUEUE_SIZE; i++)
-        if (remote_socks[i] == sock)
-            remote_socks[i] = 0;
-    D("Connection closed by peer for sock %d\n", sock);
-    close(sock);
+    for (i = 0; i < LISTENING_QUEUE_SIZE; i++) {
+        if (remote_socks[i] == 0) {
+            remote_socks[i] = sock;
+	    break;
+        }
+    }
 }
 
-static int receive_input_events(int sock, struct input_event *ev)
+static bool unregistering_client(int sock, int *remote_socks)
 {
-    int i = 0, j = 1;
-    uint32_t size;
-    ssize_t ret;
+    int i = 0, free_slots = 0;
+
+    for (i = 0; i < LISTENING_QUEUE_SIZE; i++) {
+        if (remote_socks[i] == sock) {
+            remote_socks[i] = 0;
+        } else {
+            free_slots++;
+	}
+    }
+    D("Connection closed by peer for sock %d\n", sock);
+    close(sock);
+    return free_slots == (LISTENING_QUEUE_SIZE - 1);
+}
+
+static int receive_input_events(int sock, struct input_event *ev, uint32_t size)
+{
+    int j = 1;
+    static uint32_t buffer[EVENTS_QUEUE_SIZE * 2];
 
     bzero(ev, sizeof(struct input_event) * EVENTS_QUEUE_SIZE);
     bzero(buffer, sizeof(uint32_t) * EVENTS_QUEUE_SIZE * 2);
 
-    ret = recv(sock, &size, sizeof(uint32_t), MSG_PEEK);
-    if (ret == 0) {
-        connection_closed_by_peer(sock);
-        return -1;
-    }
+    recv(sock, buffer, sizeof(uint32_t) * (size + 1), MSG_WAITALL);
 
-    size = ntohl(size);
-
-    ret = recv(sock, buffer, sizeof(uint32_t) * (size + 1), MSG_WAITALL);
-    if (ret == 0) {
-        connection_closed_by_peer(sock);
-        return -1;
-    }
-
-    for(i = 0; i < EVENTS_QUEUE_SIZE; i++) {
+    for(int i = 0; i < EVENTS_QUEUE_SIZE; i++) {
         buffer[j] = ntohl(buffer[j]);
         ev[i].type = (buffer[j] >> 16);
         ev[i].code = buffer[j] & 0xffff;
@@ -116,28 +148,22 @@ static int receive_input_events(int sock, struct input_event *ev)
 
 static int input_subsystem_init(void)
 {
-    int uinput_fd, i;
+    int uinput_fd;
+    unsigned int i;
     struct uinput_user_dev uidev;
     ssize_t ret;
 
     bzero(&uidev, sizeof(uidev));
-    if (getuid() != 0) {
-        fprintf(stderr, "aibd: root privileges are required to access to input subsystem\n");
-        exit(1);
-    }
-
     uinput_fd = openx("/dev/uinput", O_WRONLY | O_NONBLOCK);
 
-    ioctlx(uinput_fd, UI_SET_EVBIT, EV_KEY);
-    ioctlx(uinput_fd, UI_SET_EVBIT, EV_REL);
-
-    ioctlx(uinput_fd, UI_SET_RELBIT, REL_X);
-    ioctlx(uinput_fd, UI_SET_RELBIT, REL_Y);
-    ioctlx(uinput_fd, UI_SET_RELBIT, REL_WHEEL);
-
-    ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_LEFT);
-    ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_RIGHT);
-    ioctlx(uinput_fd, UI_SET_KEYBIT, BTN_MIDDLE);
+    for (i = 0; i < (sizeof(evbits) / sizeof(uint16_t)); i++)
+        ioctlx(uinput_fd, UI_SET_EVBIT, evbits[i]);
+    for (i = 0; i < (sizeof(relbits) / sizeof(uint16_t)); i++)
+        ioctlx(uinput_fd, UI_SET_RELBIT, relbits[i]);
+    for (i = 0; i < (sizeof(keybits) / sizeof(uint16_t)); i++)
+        ioctlx(uinput_fd, UI_SET_KEYBIT, keybits[i]);
+    for (i = 0; i < (sizeof(absbits) / sizeof(uint16_t)); i++)
+        ioctlx(uinput_fd, UI_SET_ABSBIT, absbits[i]);
 
     /* Register all keyboards keys, see linux/input.h */
     for(i = 1; i <= 248; i++)
@@ -158,17 +184,22 @@ static int input_subsystem_init(void)
     return uinput_fd;
 }
 
-static void mainloop(int sock, int uinput)
+static void mainloop(int sock)
 {
     fd_set readfds;
-    int ret, newsock, i, maxfd;
+    int ret, maxfd, uinput = 0;
+    bool uidev_created = false;
+    int remote_socks[LISTENING_QUEUE_SIZE];
+    struct input_event events[EVENTS_QUEUE_SIZE];
 
+    bzero(remote_socks, sizeof(remote_socks));
+    bzero(events, sizeof(events));
     while (1) {
         maxfd = sock;
         FD_ZERO(&readfds);
         FD_SET(sock, &readfds);
 
-        for (i = 0; i < LISTENING_QUEUE_SIZE; i++) {
+        for (int i = 0; i < LISTENING_QUEUE_SIZE; i++) {
             if (remote_socks[i] != 0) {
                 FD_SET(remote_socks[i], &readfds);
                 if (remote_socks[i] > maxfd)
@@ -180,26 +211,44 @@ static void mainloop(int sock, int uinput)
             ret = select(maxfd + 1, &readfds, NULL, NULL, NULL);
         } while (ret < 0 && errno == EINTR);
 
-        if (ret < 0) {
+        if (unlikely(ret < 0)) {
             perror("aibd");
             exit(1);
 	}
 
         if (FD_ISSET(sock, &readfds)) {
 	    D("Incoming connection\n");
-            newsock = accept(sock, NULL, NULL);
+            int newsock = accept(sock, NULL, NULL);
 
-            if (newsock == -1)
+            if (unlikely(newsock == -1))
                 continue;
+            registering_client(newsock, remote_socks);
 
-            for (i = 0; i < LISTENING_QUEUE_SIZE; i++)
-                if (remote_socks[i] == 0)
-                    remote_socks[i] = newsock;
+            if (uidev_created == false) {
+                D("Creating virtual input device\n");
+                uinput = input_subsystem_init();
+                uidev_created = true;
+	    }
         } else {
-            for (i = 0; i < LISTENING_QUEUE_SIZE; i++) {
+            for (int i = 0; i < LISTENING_QUEUE_SIZE; i++) {
                 if (FD_ISSET(remote_socks[i], &readfds)) {
-                    ret = receive_input_events(remote_socks[i], events);
-                    if (ret == -1)
+                    ssize_t rret;
+                    uint32_t size;
+
+                    rret = recv(remote_socks[i], &size, sizeof(uint32_t), MSG_PEEK);
+                    if (unlikely(rret == 0)) {
+                        bool last_client_unregistered = unregistering_client(remote_socks[i], remote_socks);
+                        if (last_client_unregistered) {
+                            D("Destroying virtual input device\n");
+                            ioctlx(uinput, UI_DEV_DESTROY, NO_EXTRA_ARGUMENT);
+                            uidev_created = false;
+                        }
+                        break;
+                    }
+
+		    size = ntohl(size);
+                    ret = receive_input_events(remote_socks[i], events, size);
+                    if (unlikely(ret == -1))
                         continue;
                     forward_events(uinput, events);
                 }
@@ -240,7 +289,12 @@ int main (int argc, char *argv[])
 {
     char *endptr = NULL;
     uint16_t port;
-    int sock, uinput;
+    int sock;
+
+    if (getuid() != 0) {
+        fprintf(stderr, "aibd: root privileges are required to access to input subsystem\n");
+        exit(1);
+    }
  
     if (argc < 2)
         usage(argv[0]);
@@ -249,9 +303,8 @@ int main (int argc, char *argv[])
 
     if (*endptr != '\0')
         usage(argv[0]);
-    uinput = input_subsystem_init();
     sock = socket_init(port);
-    mainloop(sock, uinput);
+    mainloop(sock);
 
     return 0;
 }

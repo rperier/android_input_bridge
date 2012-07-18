@@ -39,6 +39,9 @@
       }						\
   } while(0)
 
+#define likely(x)	__builtin_expect((x), 1)
+#define unlikely(x)	__builtin_expect((x), 0)
+
 int socketx(int domain, int type, int protocol);
 int openx(const char *pathname, int flags);
 void *mallocx(size_t size);

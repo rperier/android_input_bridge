@@ -100,7 +100,7 @@ static void wait_evdev_input(int aibd_sock, int inputdev)
 
     while (1) {
         read(inputdev, ev + i, sizeof(struct input_event));
-        D("[%lu.%04lu] type %u, code %u, value %d\n", ev[i].time.tv_sec, ev[i].time.tv_usec, ev[i].type, ev[i].code, ev[i].value);
+        D("[%lu.%04lu] type 0x%x, code 0x%x, value %d\n", ev[i].time.tv_sec, ev[i].time.tv_usec, ev[i].type, ev[i].code, ev[i].value);
 
         if (ev[i].type == EV_MSC)
             continue;
