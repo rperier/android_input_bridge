@@ -6,7 +6,7 @@ LOCAL_SRC_FILES:=    \
     common.c         \
     aibd.c
 LOCAL_MODULE := aibd
-LOCAL_CFLAGS += -fno-strict-aliasing -DAPPNAME=\"aidb\" -std=c99
+LOCAL_CFLAGS += -fno-strict-aliasing -DAPPNAME=\"aidb\"
 include $(BUILD_EXECUTABLE)
 
 include $(CLEAR_VARS)
