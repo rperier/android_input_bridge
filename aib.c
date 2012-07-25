@@ -43,7 +43,7 @@ static void usage(char *progname)
 
 static int input_device_init(const char *device)
 {
-    int indev_fd;
+    int indev_fd, grab = 1;
     char *devname = NULL;
 
     indev_fd = openx(device, O_RDONLY);
@@ -52,6 +52,7 @@ static int input_device_init(const char *device)
     if (devname == NULL)
         return indev_fd;
     ioctlx(indev_fd, EVIOCGNAME(64), devname);
+    ioctlx(indev_fd, EVIOCGRAB, &grab);
 
     printf("Capturing events for device %s\n", devname);
     free(devname);
